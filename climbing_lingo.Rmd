@@ -1,0 +1,244 @@
+---
+title: "Climber Lingo"
+author: "Peter Menzies"
+date: "1/21/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+library(janitor)
+library(tm)
+library(gt)
+library(quanteda)
+library(quanteda.textstats)
+library(lubridate)
+
+quanteda_options(threads = 8,
+                 print_dfm_max_nfeat = 50)
+```
+
+
+```{r}
+#df_disc <- read.csv("/Users/petermenzies/Coding/cool_datasets/mtn_proj/discussion_forum.csv", stringsAsFactors = FALSE)
+df_forums <- read.csv("/Users/petermenzies/Coding/cool_datasets/mtn_proj/labeled_forums.csv", stringsAsFactors = FALSE) %>% select(text, post_date)
+```
+
+```{r}
+# df_forums_sub <- df_forums %>% 
+#   select(text, post_date)
+```
+
+## Top words and lingo counts
+
+```{r}
+text <- paste(df_forums$text, collapse = " ") 
+```
+
+```{r}
+stop_words <- stopwords::data_stopwords_smart$en
+```
+
+```{r}
+stop_words_tbl <- stop_words %>% as_tibble()
+```
+
+
+```{r}
+corpus <- quanteda::corpus(text)
+```
+
+
+```{r}
+dfm <- tokens(corpus, what = "fastestword",
+              remove_punct = TRUE,
+              remove_symbols = TRUE,
+              remove_numbers = TRUE,
+              verbose = TRUE) %>%
+    tokens_select(pattern = stop_words, selection = "remove") %>% 
+    dfm(verbose = TRUE)
+```
+
+```{r}
+top_words <- topfeatures(dfm, n = 100)
+```
+
+```{r}
+lingo <- c("sick", "beta", "whip", "whipper", "send", "burn", "dude", "man", "crimp",
+           "boink", "flash", "pro", "rack", "project", "crag", "trad", "chossy", "choss",
+           "grigri", "mega", "psyched", "epic", "rap", "crush", "problem", "jam",
+           "jug", "solo", "atc", "dyno", "chains", "static", "lead", "arete", "tr")
+
+lingo_dfm <- dfm_keep(dfm, pattern = lingo)
+
+lingo_dfm
+```
+
+```{r}
+funny_lingo <- c("sick", "beta", "whip", "whipper", "send", "burn", "dude",
+           "boink", "flash", "pro", "proj", "chossy", "choss",
+           "mega", "psyched", "epic", "crush", "splitter", "whipped", "crux",
+           "sending")
+
+funny_dfm <- dfm_keep(dfm, pattern = funny_lingo)
+
+funny_dfm
+```
+
+```{r}
+top_lingo <- topfeatures(lingo_dfm, n = 10)
+
+top_lingo
+```
+
+```{r}
+top_words
+```
+
+
+## Lingo counts over time
+
+```{r}
+df_forums <- df_forums %>% 
+  mutate(text = gsub("[[:punct:]]|[[:digit:]]", " ", text))
+```
+
+```{r}
+df_forums$send_ct <- rowSums(sapply(c(" send ", " sending ", " sender "),
+                               function(x) grepl(x, df_forums$text)))
+
+sum(df_forums$send_ct)
+```
+
+```{r}
+df_forums$sick_ct <- rowSums(sapply(c("sick"),
+                               function(x) grepl(x, df_forums$text)))
+
+sum(df_forums$sick_ct)
+```
+
+```{r}
+df_forums$mega_ct <- rowSums(sapply(c(" mega"),
+                               function(x) grepl(x, df_forums$text)))
+
+sum(df_forums$mega_ct)
+```
+
+```{r}
+df_forums$flash_ct <- rowSums(sapply(c("flash", "flashed"),
+                               function(x) grepl(x, df_forums$text)))
+
+sum(df_forums$flash_ct)
+```
+
+```{r}
+df_forums$whip_ct <- rowSums(sapply(c("whip", "whipper", "whipped"),
+                               function(x) grepl(x, df_forums$text)))
+
+sum(df_forums$whip_ct)
+```
+
+```{r}
+df_forums$dude_ct <- rowSums(sapply(c("dude"),
+                               function(x) grepl(x, df_forums$text)))
+
+df_forums$burn_ct <- rowSums(sapply(c(" burn"),
+                               function(x) grepl(x, df_forums$text)))
+
+df_forums$beta_ct <- rowSums(sapply(c("beta"),
+                               function(x) grepl(x, df_forums$text)))
+
+df_forums$crux_ct <- rowSums(sapply(c("crux"),
+                               function(x) grepl(x, df_forums$text)))
+
+df_forums$stoked_ct <- rowSums(sapply(c("stoke", "stoked"),
+                               function(x) grepl(x, df_forums$text)))
+
+df_forums$the_ct <- rowSums(sapply(c("the"),
+                               function(x) grepl(x, df_forums$text)))
+
+df_forums$climb_ct <- rowSums(sapply(c("climb"),
+                               function(x) grepl(x, df_forums$text)))
+```
+
+```{r}
+df_forums <- df_forums %>% 
+  mutate(words = lengths(strsplit(text, "\\W+")))
+```
+
+
+## Grouping and time series
+
+```{r}
+year_counts <- df_forums %>% 
+  select(-text) %>% 
+  mutate(post_date = mdy(post_date)) %>% 
+  mutate(year = year(post_date)) %>% 
+  group_by(year) %>% 
+  summarise_if(is.numeric, sum) %>% 
+  mutate(across(send_ct:stoked_ct, function(x) x / words * 100)) %>% 
+  mutate(climb_scaled = climb_ct / words * 2, 
+    the_scaled_0.3 = the_ct / words * 0.3, 
+    the_scaled_0.5 = the_ct / words * 0.5) %>% 
+  select(-climb_ct, -rope_ct, -the_ct) %>% 
+  relocate(words, .after = year)
+```
+
+```{r}
+ggplot(year_counts, aes(x = year, y = send_ct)) +
+  geom_line(col = "blue") +
+  geom_line(aes(x = year, y = sick_ct), col = "red") +
+  geom_line(aes(x = year, y = whip_ct), col = "cyan") +
+  geom_line(aes(x = year, y = dude_ct), col = "purple") +
+  geom_line(aes(x = year, y = beta_ct), col = "pink") +
+  geom_line(aes(x = year, y = the_scaled_0.3), col = "green") +
+  geom_line(aes(x = year, y = climb_scaled), col = "yellow")
+  
+```
+
+```{r}
+ggplot(year_counts, aes(x = year, y = dude_ct)) +
+  geom_line(col = "red") +
+  geom_line(aes(x = year, y = the_scaled_0.3), col = "light green") +
+  geom_line(aes(x = year, y = climb_scaled), col = "cyan3")
+```
+
+```{r}
+ggplot(month_counts, aes(x = year_month, y = send_ct)) +
+  geom_point(col = "purple")
+```
+
+```{r}
+ggplot(year_counts, aes(x = year, y = the_adj_ct)) +
+  geom_line(col = "green") +
+  geom_line(aes(x = year, y = mega_ct), col = "orange")
+```
+
+
+```{r}
+ggplot(year_counts, aes(x = year, y = the_adj_ct)) +
+  geom_line(col = "green") +
+  geom_line(aes(x = year, y = dude_ct), col = "purple")
+```
+
+
+```{r}
+ggplot(year_counts, aes(x = year, y = the_scaled_0.3)) +
+  geom_line(col = "green") +
+  geom_line(aes(x = year, y = whip_ct), col = "red") +
+  geom_line(aes(x = year, y = climb_scaled), col = "blue")
+```
+
+
+
+
+
+
+
+
+
+
+
+
